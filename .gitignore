@@ -1,0 +1,14 @@
+# Local build and simulation products
+/build/
+/obj_dir/
+/code
+*.o
+*.a
+*.vcd
+*.fst
+
+# Tool and editor caches
+*.AppImage
+/.idea/
+/.vscode/
+.DS_Store
