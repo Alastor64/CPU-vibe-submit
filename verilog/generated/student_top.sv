@@ -6339,12 +6339,12 @@ module MulDivUnit(
   reg  [5:0]  count;
   reg         aNegative;
   reg         quotientNegative;
-  wire        _multiplyValue_T_5 = op == 5'hA;
-  wire        _multiplyValue_T_7 = op == 5'hB;
-  wire        _multiplyValue_T_9 = op == 5'hC;
-  wire        _multiplyValue_T_11 = op == 5'hD;
+  wire        _multiplyValue_T_1 = op == 5'hA;
+  wire        _multiplyValue_T_3 = op == 5'hB;
+  wire        _multiplyValue_T_5 = op == 5'hC;
+  wire        _multiplyValue_T_7 = op == 5'hD;
   wire        isMul =
-    _multiplyValue_T_5 | _multiplyValue_T_7 | _multiplyValue_T_9 | _multiplyValue_T_11;
+    _multiplyValue_T_1 | _multiplyValue_T_3 | _multiplyValue_T_5 | _multiplyValue_T_7;
   wire        _done_T = state == 3'h1;
   wire        _GEN = divisor == 32'h0;
   wire        _GEN_0 = aNegative & aReg == 32'h80000000 & (&bReg);
@@ -6371,44 +6371,40 @@ module MulDivUnit(
         casez_tmp = state;
     endcase
   end // always_comb
-  wire [63:0] _GEN_3 = {32'h0, b};
-  wire [63:0] unsignedProduct = {32'h0, a} * _GEN_3;
-  wire [63:0] _GEN_4 = {{32{a[31]}}, a};
-  wire [63:0] signedProduct = _GEN_4 * {{32{b[31]}}, b};
-  wire [63:0] _signedUnsignedProduct_T_4 = _GEN_4 * _GEN_3;
+  wire [63:0] unsignedProduct = {32'h0, a} * {32'h0, b};
   wire        isSignedDiv = op == 5'hE | op == 5'h10;
   wire [31:0] remCandidate = {remainder[30:0], dividend[31]};
   wire        subtract = remCandidate >= divisor;
   wire [31:0] nextRemainder =
     subtract ? {remainder[30:0], dividend[31]} - divisor : remCandidate;
   wire [31:0] nextQuotient = {quotient[30:0], subtract};
-  wire        _GEN_5 = state == 3'h0;
-  wire        _GEN_6 = _GEN_5 & start;
+  wire        _GEN_3 = state == 3'h0;
+  wire        _GEN_4 = _GEN_3 & start;
   wire        negA = isSignedDiv & a[31];
   wire        negB = isSignedDiv & b[31];
-  wire        _GEN_7 = ~_GEN_6 | isMul;
-  wire        _GEN_8 = state == 3'h2;
-  wire        _GEN_9 = state == 3'h3;
+  wire        _GEN_5 = ~_GEN_4 | isMul;
+  wire        _GEN_6 = state == 3'h2;
+  wire        _GEN_7 = state == 3'h3;
   always @(posedge clock) begin
     if (reset)
       state <= 3'h0;
     else
       state <= casez_tmp;
-    if (_GEN_6) begin
+    if (_GEN_4) begin
       opReg <= op;
       aReg <= a;
       bReg <= b;
     end
-    if (_GEN_5) begin
+    if (_GEN_3) begin
       if (start & isMul)
         resultReg <=
-          _multiplyValue_T_11
+          _multiplyValue_T_7
             ? unsignedProduct[63:32]
-            : _multiplyValue_T_9
-                ? _signedUnsignedProduct_T_4[63:32]
-                : _multiplyValue_T_7
-                    ? signedProduct[63:32]
-                    : _multiplyValue_T_5 ? unsignedProduct[31:0] : 32'h0;
+            : _multiplyValue_T_5
+                ? unsignedProduct[63:32] - (a[31] ? b : 32'h0)
+                : _multiplyValue_T_3
+                    ? unsignedProduct[63:32] - (a[31] ? b : 32'h0) - (b[31] ? a : 32'h0)
+                    : _multiplyValue_T_1 ? unsignedProduct[31:0] : 32'h0;
       if (~start | isMul) begin
       end
       else
@@ -6416,13 +6412,13 @@ module MulDivUnit(
     end
     else begin
       if (~_done_T) begin
-        if (_GEN_8) begin
+        if (_GEN_6) begin
           if (_GEN)
             resultReg <= opReg == 5'h10 | opReg == 5'h11 ? aReg : 32'hFFFFFFFF;
           else if (_GEN_0)
             resultReg <= {opReg != 5'h10, 31'h0};
         end
-        else if (_GEN_9 & _GEN_2)
+        else if (_GEN_7 & _GEN_2)
           resultReg <=
             opReg == 5'h10
               ? (aNegative ? 32'h0 - nextRemainder : nextRemainder)
@@ -6432,17 +6428,17 @@ module MulDivUnit(
                       ? nextQuotient
                       : 32'h0 - {quotient[30:0], subtract};
       end
-      if (_done_T | _GEN_8 | ~_GEN_9) begin
+      if (_done_T | _GEN_6 | ~_GEN_7) begin
       end
       else
         dividend <= {dividend[30:0], 1'h0};
     end
-    if (_GEN_7) begin
+    if (_GEN_5) begin
     end
     else
       divisor <= negB ? 32'h0 - b : b;
-    if (~(_GEN_5 | _done_T)) begin
-      if (_GEN_8) begin
+    if (~(_GEN_3 | _done_T)) begin
+      if (_GEN_6) begin
         if (~_GEN_1) begin
           remainder <= 32'h0;
           quotient <= 32'h0;
@@ -6450,17 +6446,17 @@ module MulDivUnit(
         end
       end
       else begin
-        if (_GEN_9) begin
+        if (_GEN_7) begin
           remainder <= nextRemainder;
           quotient <= nextQuotient;
         end
-        if (~_GEN_9 | _GEN_2) begin
+        if (~_GEN_7 | _GEN_2) begin
         end
         else
           count <= count + 6'h1;
       end
     end
-    if (_GEN_7) begin
+    if (_GEN_5) begin
     end
     else begin
       aNegative <= negA;
