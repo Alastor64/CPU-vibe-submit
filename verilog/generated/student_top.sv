@@ -6315,6 +6315,51 @@ module Alu(
     decoded_isJalr ? {_registerTarget_T[31:1], 1'h0} : decoded_pc + decoded_imm;
 endmodule
 
+module PipelinedWallaceMultiplier(
+  input         clock,
+                reset,
+                start,
+  input  [31:0] a,
+                b,
+  output        busy,
+  output [63:0] product
+);
+
+  reg         state;
+  reg  [63:0] sumReg;
+  reg  [63:0] carryReg;
+  wire [31:0] _GEN = {16'h0, a[15:0]};
+  wire [31:0] _GEN_0 = {16'h0, b[15:0]};
+  wire [31:0] _GEN_1 = {16'h0, b[31:16]};
+  wire [47:0] _lowHigh_T_1 = {_GEN * _GEN_1, 16'h0};
+  wire [31:0] _GEN_2 = {16'h0, a[31:16]};
+  wire [47:0] _highLow_T_1 = {_GEN_2 * _GEN_0, 16'h0};
+  wire [31:0] _highHigh_T = _GEN_2 * _GEN_1;
+  wire [47:0] _GEN_3 = {16'h0, _GEN * _GEN_0};
+  wire [47:0] _GEN_4 = _GEN_3 ^ _lowHigh_T_1 ^ _highLow_T_1;
+  wire [47:0] _GEN_5 =
+    _GEN_3 & _lowHigh_T_1 | _GEN_3 & _highLow_T_1 | _lowHigh_T_1 & _highLow_T_1;
+  wire [62:0] _GEN_6 = {15'h0, _GEN_4};
+  wire [62:0] _GEN_7 = {14'h0, _GEN_5, 1'h0};
+  wire [62:0] _GEN_8 = {_highHigh_T[30:0], 32'h0};
+  always @(posedge clock) begin
+    if (reset) begin
+      state <= 1'h0;
+      sumReg <= 64'h0;
+      carryReg <= 64'h0;
+    end
+    else begin
+      state <= ~state & (start | state);
+      if (~state & start) begin
+        sumReg <= {16'h0, _GEN_4} ^ {15'h0, _GEN_5, 1'h0} ^ {_highHigh_T, 32'h0};
+        carryReg <= {_GEN_6 & _GEN_7 | _GEN_6 & _GEN_8 | _GEN_7 & _GEN_8, 1'h0};
+      end
+    end
+  end // always @(posedge)
+  assign busy = state;
+  assign product = sumReg + carryReg;
+endmodule
+
 module MulDivUnit(
   input         clock,
                 reset,
@@ -6327,6 +6372,8 @@ module MulDivUnit(
   output [31:0] value
 );
 
+  wire        _multiplier_busy;
+  wire [63:0] _multiplier_product;
   reg  [2:0]  state;
   reg  [4:0]  opReg;
   reg  [31:0] aReg;
@@ -6339,13 +6386,8 @@ module MulDivUnit(
   reg  [5:0]  count;
   reg         aNegative;
   reg         quotientNegative;
-  wire        _multiplyValue_T_1 = op == 5'hA;
-  wire        _multiplyValue_T_3 = op == 5'hB;
-  wire        _multiplyValue_T_5 = op == 5'hC;
-  wire        _multiplyValue_T_7 = op == 5'hD;
-  wire        isMul =
-    _multiplyValue_T_1 | _multiplyValue_T_3 | _multiplyValue_T_5 | _multiplyValue_T_7;
-  wire        _done_T = state == 3'h1;
+  wire        isMul = op == 5'hA | op == 5'hB | op == 5'hC | op == 5'hD;
+  wire        _value_T = state == 3'h1;
   wire        _GEN = divisor == 32'h0;
   wire        _GEN_0 = aNegative & aReg == 32'h80000000 & (&bReg);
   wire        _GEN_1 = _GEN | _GEN_0;
@@ -6371,20 +6413,18 @@ module MulDivUnit(
         casez_tmp = state;
     endcase
   end // always_comb
-  wire [63:0] unsignedProduct = {32'h0, a} * {32'h0, b};
-  wire        isSignedDiv = op == 5'hE | op == 5'h10;
   wire [31:0] remCandidate = {remainder[30:0], dividend[31]};
   wire        subtract = remCandidate >= divisor;
   wire [31:0] nextRemainder =
     subtract ? {remainder[30:0], dividend[31]} - divisor : remCandidate;
   wire [31:0] nextQuotient = {quotient[30:0], subtract};
+  wire        isSignedDiv = op == 5'hE | op == 5'h10;
   wire        _GEN_3 = state == 3'h0;
   wire        _GEN_4 = _GEN_3 & start;
   wire        negA = isSignedDiv & a[31];
+  wire        _GEN_5 = state == 3'h2;
+  wire        _GEN_6 = state == 3'h3;
   wire        negB = isSignedDiv & b[31];
-  wire        _GEN_5 = ~_GEN_4 | isMul;
-  wire        _GEN_6 = state == 3'h2;
-  wire        _GEN_7 = state == 3'h3;
   always @(posedge clock) begin
     if (reset)
       state <= 3'h0;
@@ -6395,30 +6435,20 @@ module MulDivUnit(
       aReg <= a;
       bReg <= b;
     end
-    if (_GEN_3) begin
-      if (start & isMul)
-        resultReg <=
-          _multiplyValue_T_7
-            ? unsignedProduct[63:32]
-            : _multiplyValue_T_5
-                ? unsignedProduct[63:32] - (a[31] ? b : 32'h0)
-                : _multiplyValue_T_3
-                    ? unsignedProduct[63:32] - (a[31] ? b : 32'h0) - (b[31] ? a : 32'h0)
-                    : _multiplyValue_T_1 ? unsignedProduct[31:0] : 32'h0;
-      if (~start | isMul) begin
-      end
-      else
-        dividend <= negA ? 32'h0 - a : a;
-    end
-    else begin
-      if (~_done_T) begin
-        if (_GEN_6) begin
-          if (_GEN)
-            resultReg <= opReg == 5'h10 | opReg == 5'h11 ? aReg : 32'hFFFFFFFF;
-          else if (_GEN_0)
-            resultReg <= {opReg != 5'h10, 31'h0};
+    if (~(_GEN_3 | _value_T)) begin
+      if (_GEN_5) begin
+        if (_GEN)
+          resultReg <= opReg == 5'h10 | opReg == 5'h11 ? aReg : 32'hFFFFFFFF;
+        else if (_GEN_0)
+          resultReg <= {opReg != 5'h10, 31'h0};
+        if (~_GEN_1) begin
+          remainder <= 32'h0;
+          quotient <= 32'h0;
+          count <= 6'h0;
         end
-        else if (_GEN_7 & _GEN_2)
+      end
+      else begin
+        if (_GEN_6 & _GEN_2)
           resultReg <=
             opReg == 5'h10
               ? (aNegative ? 32'h0 - nextRemainder : nextRemainder)
@@ -6427,45 +6457,56 @@ module MulDivUnit(
                   : opReg == 5'hF | ~quotientNegative
                       ? nextQuotient
                       : 32'h0 - {quotient[30:0], subtract};
-      end
-      if (_done_T | _GEN_6 | ~_GEN_7) begin
-      end
-      else
-        dividend <= {dividend[30:0], 1'h0};
-    end
-    if (_GEN_5) begin
-    end
-    else
-      divisor <= negB ? 32'h0 - b : b;
-    if (~(_GEN_3 | _done_T)) begin
-      if (_GEN_6) begin
-        if (~_GEN_1) begin
-          remainder <= 32'h0;
-          quotient <= 32'h0;
-          count <= 6'h0;
-        end
-      end
-      else begin
-        if (_GEN_7) begin
+        if (_GEN_6) begin
           remainder <= nextRemainder;
           quotient <= nextQuotient;
         end
-        if (~_GEN_7 | _GEN_2) begin
+        if (~_GEN_6 | _GEN_2) begin
         end
         else
           count <= count + 6'h1;
       end
     end
-    if (_GEN_5) begin
+    if (_GEN_3) begin
+      if (~start | isMul) begin
+      end
+      else
+        dividend <= negA ? 32'h0 - a : a;
+    end
+    else if (_value_T | _GEN_5 | ~_GEN_6) begin
+    end
+    else
+      dividend <= {dividend[30:0], 1'h0};
+    if (~_GEN_4 | isMul) begin
     end
     else begin
+      divisor <= negB ? 32'h0 - b : b;
       aNegative <= negA;
       quotientNegative <= negA ^ negB;
     end
   end // always @(posedge)
-  assign busy = |state;
-  assign done = _done_T | state == 3'h4;
-  assign value = resultReg;
+  PipelinedWallaceMultiplier multiplier (
+    .clock   (clock),
+    .reset   (reset),
+    .start   (start & isMul),
+    .a       (a),
+    .b       (b),
+    .busy    (_multiplier_busy),
+    .product (_multiplier_product)
+  );
+  assign busy = (|state) | _multiplier_busy;
+  assign done = _value_T | state == 3'h4;
+  assign value =
+    _value_T
+      ? (opReg == 5'hD
+           ? _multiplier_product[63:32]
+           : opReg == 5'hC
+               ? _multiplier_product[63:32] - (aReg[31] ? bReg : 32'h0)
+               : opReg == 5'hB
+                   ? _multiplier_product[63:32] - (aReg[31] ? bReg : 32'h0)
+                     - (bReg[31] ? aReg : 32'h0)
+                   : opReg == 5'hA ? _multiplier_product[31:0] : 32'h0)
+      : resultReg;
 endmodule
 
 module Core(
